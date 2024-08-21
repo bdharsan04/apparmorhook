@@ -1,0 +1,64 @@
+My plan of action for this particular problem was to modify the apparmor-profile in containers.conf
+This is done by changing the default AppArmor profile of container engines. The default profile name is "container-default". When this is done, whenever we run a container the hook executes the script which sets the default apparmor profile used by container engines to the profile of our choice
+First, check the directory where the hooks are configured through
+"sudo cat /usr/share/containers/containers.conf"
+In my case, it is configured to
+"usr/share/containers/oci/hooks.d"
+so now I had to create the oci and hooks directory inside "/usr/share/containers" so I followed these commands
+"cd /usr/share/containers"
+"sudo mkdir oci/hooks.d"
+Inside the hooks.d directory I created a file called names.json and configured the hooks definition location
+I have configured my hooks definition location to be "/usr/local/bin" and created my file hookexec.sh in this path
+and no I have granted for this script permissions using "chmod +x /usr/local/bin/hookexec.sh"
+I have also created an apparmor profile by saving the profile in the "/etc/apparmor.d/containers/docker-nginx" file and I have loaded the profile using
+"sudo apparmor_parser -r -W /etc/apparmor.d/containers/docker-nginx"
+I have attached the hookexec.sh and names.json files below for reference please do go through it and feel free to give your thoughts on this
+
+-----------------------------------------------------------------------------------------------
+
+
+hookexec.sh
+
+
+#!/bin/bash
+CONFIG_FILE="/usr/share/containers/containers.conf"
+APPARMOR_PROFILE="docker-nginx"
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "Error: $CONFIG_FILE does not exist."
+  exit 1
+fi
+# Backup the original containers.conf file
+cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+
+#check if the apparmor_profile line already exists
+if grep -q "^apparmor_profile" "$CONFIG_FILE"; then
+  # If it already exists, replace it with the new profile
+  sed -i "s/^apparmor_profile = .*/apparmor_profile = \"$APPARMOR_PROFILE\"/" "$CONFIG_FILE"
+else
+  # If it does not exist, add it to the file
+  # Find the engine section to append the configuration
+  if grep -q "\[engine\]" "$CONFIG_FILE"; then
+    sed -i "/\[engine\]/a apparmor_profile = \"$APPARMOR_PROFILE\"" "$CONFIG_FILE"
+  else
+    # If engine section is not present, add it with the new profile
+    echo -e "[engine]\napparmor_profile = \"$APPARMOR_PROFILE\"" >> "$CONFIG_FILE"
+  fi
+fi
+
+echo "AppArmor profile updated to $APPARMOR_PROFILE in $CONFIG_FILE."
+
+-----------------------------------------------------------------------------------------------
+
+
+names.json
+
+{
+  "version": "1.0.0",
+  "hook": {
+    "path": "/usr/local/bin/hookexec.sh"
+  },
+  "when": {
+    "always": true
+  },
+  "stages": ["prestart"]
+}
